@@ -1,52 +1,86 @@
 package br.pucpr.authserver.courses
 
+import br.pucpr.authserver.categories.CategoryService
+import br.pucpr.authserver.common.Sorting
+import br.pucpr.authserver.exceptions.BadRequestException
+import br.pucpr.authserver.exceptions.NotFoundException
+import br.pucpr.authserver.security.CurrentUser
 import org.slf4j.LoggerFactory
-import org.springframework.data.domain.Sort
-import org.springframework.http.HttpStatus
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
-import org.springframework.web.server.ResponseStatusException
+import org.springframework.transaction.annotation.Transactional
 
 @Service
 class CourseService(
-    private val courseRepository: CourseRepository,
-    private val categoryRepository: CategoryRepository
+    private val repository: CourseRepository,
+    private val categoryService: CategoryService
 ) {
-    private val log = LoggerFactory.getLogger(CourseService::class.java)
-
-    fun create(title: String, workload: Int, categoryId: Long): Course {
-        log.info("Criando novo curso: '$title' vinculado à categoria ID: $categoryId")
-        val category = categoryRepository.findById(categoryId)
-            .orElseThrow { ResponseStatusException(HttpStatus.NOT_FOUND, "Categoria com ID $categoryId não encontrada.") }
-        return courseRepository.save(Course(title = title, workload = workload, category = category))
+    @Transactional
+    fun insert(title: String, workload: Int, categoryId: Long): Course {
+        val category = categoryService.findById(categoryId)
+        return repository.save(Course(title = title.trim(), workload = workload, category = category))
+            .also { log.info("Curso {} criado na categoria {}", it.id, categoryId) }
     }
 
-    fun listAll(titleQuery: String?, sortBy: String = "title"): List<Course> {
-        log.info("Listando cursos. Filtro de título: '$titleQuery', Ordenado por: $sortBy")
-        val sort = Sort.by(sortBy)
-        return if (titleQuery.isNullOrBlank()) {
-            courseRepository.findAll(sort)
-        } else {
-            courseRepository.findByTitleContainingIgnoreCase(titleQuery, sort)
+    @Transactional(readOnly = true)
+    fun search(
+        title: String?,
+        categoryId: Long?,
+        minWorkload: Int?,
+        maxWorkload: Int?,
+        sortBy: String?,
+        sortDir: String?
+    ): List<Course> {
+        if (minWorkload != null && maxWorkload != null && minWorkload > maxWorkload) {
+            throw BadRequestException("minWorkload ($minWorkload) não pode ser maior que maxWorkload ($maxWorkload).")
         }
+        val sort = Sorting.resolve(sortBy, sortDir, SORTABLE_FIELDS, default = "title")
+        log.debug(
+            "Consultando cursos (title={}, categoryId={}, minWorkload={}, maxWorkload={}, sort={})",
+            title, categoryId, minWorkload, maxWorkload, sort
+        )
+        return repository.findAll(CourseSpecifications.filter(title, categoryId, minWorkload, maxWorkload), sort)
     }
 
-    fun findById(id: Long): Course {
-        log.info("Buscando curso ID: $id")
-        return courseRepository.findById(id)
-            .orElseThrow { ResponseStatusException(HttpStatus.NOT_FOUND, "Curso com ID $id não encontrado.") }
-    }
+    @Transactional(readOnly = true)
+    fun findById(id: Long): Course =
+        repository.findByIdOrNull(id)
+            ?: throw NotFoundException("Curso $id não encontrado.")
 
-    fun update(id: Long, title: String, workload: Int): Course {
-        log.info("Atualizando curso ID: $id")
+    @Transactional
+    fun update(id: Long, title: String, workload: Int, categoryId: Long): Course {
         val course = findById(id)
-        course.title = title
+        course.title = title.trim()
         course.workload = workload
-        return courseRepository.save(course)
+        course.category = categoryService.findById(categoryId)
+        return repository.save(course)
+            .also { log.info("Curso {} atualizado por {}", id, CurrentUser.label()) }
     }
 
-    fun delete(id: Long) {
-        log.warn("Removendo curso ID: $id")
+    /** Associação Course -> Category (move o curso para outra categoria). */
+    @Transactional
+    fun changeCategory(id: Long, categoryId: Long): Course {
         val course = findById(id)
-        courseRepository.delete(course)
+        course.category = categoryService.findById(categoryId)
+        return repository.save(course)
+            .also { log.info("Curso {} movido para a categoria {} por {}", id, categoryId, CurrentUser.label()) }
+    }
+
+    @Transactional
+    fun delete(id: Long) {
+        val course = findById(id)
+        val enrollments = course.enrollments.size
+        repository.delete(course)
+        log.warn("Curso {} removido por {} (matrículas removidas junto: {})", id, CurrentUser.label(), enrollments)
+    }
+
+    companion object {
+        private val log = LoggerFactory.getLogger(CourseService::class.java)
+        private val SORTABLE_FIELDS = mapOf(
+            "id" to "id",
+            "title" to "title",
+            "workload" to "workload",
+            "category" to "category.name"
+        )
     }
 }

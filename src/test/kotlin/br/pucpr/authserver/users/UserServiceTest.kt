@@ -1,6 +1,7 @@
 package br.pucpr.authserver.users
 
 import br.pucpr.authserver.roles.RoleRepository
+import br.pucpr.authserver.security.JWT
 import io.kotest.core.spec.style.AnnotationSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.checkUnnecessaryStub
@@ -16,8 +17,9 @@ import org.junit.jupiter.api.Test
 class UserServiceTest {
     private val repository = mockk<UserRepository>()
     private val roleRepository = mockk<RoleRepository>()
+    private val jwt = mockk<JWT>()
 
-    private val service = UserService(repository, roleRepository)
+    private val service = UserService(repository, jwt, roleRepository)
 
     @BeforeEach
     fun setup() {

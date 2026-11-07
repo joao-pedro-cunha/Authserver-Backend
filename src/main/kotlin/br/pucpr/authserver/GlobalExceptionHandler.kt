@@ -1,11 +1,16 @@
 package br.pucpr.authserver
 
+import br.pucpr.authserver.security.CurrentUser
 import jakarta.validation.ConstraintViolationException
 import org.springframework.beans.TypeMismatchException
 import org.springframework.core.annotation.AnnotatedElementUtils
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.*
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.security.access.AccessDeniedException
+import org.springframework.security.authentication.AnonymousAuthenticationToken
+import org.springframework.security.core.AuthenticationException
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -91,24 +96,51 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(problemDetail)
     }
 
-    /* Habilitar com o Spring Security
-        @ExceptionHandler(AuthenticationException::class)
-        fun handleAuthenticationException(ex: AuthenticationException): ResponseEntity<ProblemDetail> {
-            val problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Unauthorized")
-            problemDetail.setProperty("errors", mapOf("detail" to listOf(ex.message ?: "Authentication failed")))
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problemDetail)
+    @ExceptionHandler(AuthenticationException::class)
+    fun handleAuthenticationException(ex: AuthenticationException): ResponseEntity<ProblemDetail> {
+        logger.warn("Acesso não autenticado: ${ex.javaClass.simpleName}")
+        return unauthorized()
+    }
+
+    /**
+     * O Spring Security lança AccessDeniedException tanto para quem NÃO está logado quanto para quem
+     * está logado mas não tem permissão. Aqui separamos: sem login é 401, sem permissão é 403.
+     */
+    @ExceptionHandler(AccessDeniedException::class)
+    fun handleAccessDeniedException(ex: AccessDeniedException): ResponseEntity<ProblemDetail> {
+        val authentication = SecurityContextHolder.getContext().authentication
+        val anonymous = authentication == null ||
+            authentication is AnonymousAuthenticationToken ||
+            !authentication.isAuthenticated
+
+        if (anonymous) {
+            logger.warn("Ação protegida acessada sem autenticação")
+            return unauthorized()
         }
 
-        @ExceptionHandler(AccessDeniedException::class)
-        fun handleAccessDeniedException(ex: AccessDeniedException): ResponseEntity<ProblemDetail> {
-            val problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Forbidden")
-            problemDetail.setProperty("errors", mapOf("detail" to listOf(ex.message ?: "Access denied")))
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problemDetail)
-        }*/
+        logger.warn("Acesso negado (usuário sem permissão): ${CurrentUser.label()}")
+        val problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Forbidden")
+        problemDetail.setProperty("errors", mapOf("detail" to listOf("Você não tem permissão para esta ação")))
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problemDetail)
+    }
+
+    private fun unauthorized(): ResponseEntity<ProblemDetail> {
+        val problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Unauthorized")
+        problemDetail.setProperty("errors", mapOf("detail" to listOf("Autenticação necessária: envie um token Bearer válido")))
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+            .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+            .body(problemDetail)
+    }
 
     @ExceptionHandler(DataIntegrityViolationException::class)
     fun handleDatabaseConstraints(ex: DataIntegrityViolationException): ResponseEntity<ProblemDetail> {
-        return handle500(ex)
+        // Detalhes do banco (SQL, nomes de constraints) só vão para o log, nunca para o cliente.
+        logger.warn("Violação de integridade no banco: ${ex.mostSpecificCause.message}")
+        val problemDetail = ProblemDetail.forStatusAndDetail(
+            HttpStatus.CONFLICT,
+            "A operação viola uma regra de integridade dos dados (ex.: valor duplicado ou registro em uso)"
+        )
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problemDetail)
     }
 
     @ExceptionHandler(Exception::class)
@@ -124,6 +156,8 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
 
         val message = ex.message.takeUnless { it.isNullOrBlank() }
             ?: HttpStatus.valueOf(status.value()).reasonPhrase
+
+        logger.info("Requisição rejeitada (${status.value()}): $message")
 
         val problemDetail = ProblemDetail.forStatusAndDetail(status, message)
 

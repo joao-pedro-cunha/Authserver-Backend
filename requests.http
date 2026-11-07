@@ -1,0 +1,64 @@
+### Roteiro para o HTTP Client do IntelliJ (servidor em http://localhost:8080/api)
+
+### 1. Login (guarda o token)
+POST http://localhost:8080/api/users/login
+Content-Type: application/json
+
+{ "email": "admin@authserver.com", "password": "admin" }
+
+> {% client.global.set("token", response.body.token); %}
+
+### 2. Criar categoria / curso / estudante (públicos)
+POST http://localhost:8080/api/categories
+Content-Type: application/json
+
+{ "name": "Backend" }
+
+###
+POST http://localhost:8080/api/courses
+Content-Type: application/json
+
+{ "title": "Kotlin com Spring", "workload": 40, "categoryId": 1 }
+
+###
+POST http://localhost:8080/api/students
+Content-Type: application/json
+
+{ "name": "Ana Souza", "email": "ana@email.com" }
+
+### 3. Associar estudante ao curso
+POST http://localhost:8080/api/enrollments
+Content-Type: application/json
+
+{ "studentId": 1, "courseId": 1 }
+
+### 4. Consultas com filtro e ordenação
+GET http://localhost:8080/api/courses?title=kotlin&minWorkload=20&sortBy=workload&sortDir=DESC
+
+###
+GET http://localhost:8080/api/students?name=ana&sortBy=email
+
+###
+GET http://localhost:8080/api/enrollments?studentId=1&status=ACTIVE&sortBy=course
+
+### 5. Ações destrutivas SEM token -> 401
+DELETE http://localhost:8080/api/students/1
+
+### 6. Ações destrutivas COM token
+PUT http://localhost:8080/api/courses/1/category/1
+Authorization: Bearer {{token}}
+
+###
+PATCH http://localhost:8080/api/enrollments/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "COMPLETED" }
+
+###
+DELETE http://localhost:8080/api/enrollments/1
+Authorization: Bearer {{token}}
+
+###
+DELETE http://localhost:8080/api/students/1
+Authorization: Bearer {{token}}

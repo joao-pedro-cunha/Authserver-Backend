@@ -30,6 +30,15 @@ springdoc:
   swagger-ui:
     use-root-path: true
 
+security:
+  jwt:
+    # Em produção defina a variável de ambiente JWT_SECRET (mínimo 32 caracteres).
+    # Sem ela, uma chave temporária é gerada a cada início e os tokens antigos deixam de valer.
+    secret: ${JWT_SECRET:}
+    expiration-ms: 86400000
+
 logging:
   file:
     path: ./logs
+  level:
+    br.pucpr.authserver: DEBUG

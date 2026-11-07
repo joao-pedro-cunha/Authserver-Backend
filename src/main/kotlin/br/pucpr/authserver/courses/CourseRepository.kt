@@ -1,13 +1,8 @@
 package br.pucpr.authserver.courses
 
-import org.springframework.data.domain.Sort
 import org.springframework.data.jpa.repository.JpaRepository
-import org.springframework.stereotype.Repository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 
-@Repository
-interface CourseRepository : JpaRepository<Course, Long> {
-    fun findByTitleContainingIgnoreCase(title: String, sort: Sort): List<Course>
+interface CourseRepository : JpaRepository<Course, Long>, JpaSpecificationExecutor<Course> {
+    fun existsByCategoryId(categoryId: Long): Boolean
 }
-
-@Repository
-interface CategoryRepository : JpaRepository<Category, Long>
