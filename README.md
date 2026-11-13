@@ -11,6 +11,10 @@ são públicas e aceitam **filtros e ordenação** por parâmetros de query.
 | João Pedro Cunha |
 | Gustavo Jaques |
 
+## LINK DO VÍDEO
+
+Youtube - https://youtu.be/mXaxC8EA8Lo
+
 ## Sumário
 
 - [Tecnologias](#tecnologias)
